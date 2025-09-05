@@ -1,0 +1,14 @@
+{
+  "name": "replit-speak",
+  "private": true,
+  "workspaces": ["server", "web"],
+  "scripts": {
+    "setup": "npm --workspace server i && npm --workspace web i",
+    "dev": "concurrently -k -n server,web -c green,blue \"npm --workspace server run dev\" \"npm --workspace web run dev\"",
+    "build": "npm --workspace web run build",
+    "preview": "npm --workspace web run preview"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

@@ -12,6 +12,7 @@ import { loadChat, appendUser, appendAssistant } from './lib/chat'
 import PreviewPanel from './components/PreviewPanel'
 import ApiKeyPanel from './components/ApiKeyPanel'
 import { ProjectRunPanel } from './components/ProjectRunPanel'
+import NetworkDebug from './components/NetworkDebug'
 
 export default function App(){
   const [projectId, setProjectId] = React.useState<string>(()=>{ ensureDefault(); return getActiveProjectId() })
@@ -161,6 +162,7 @@ export default function App(){
             <ContextPanel onApply={applyContextToAgent} projectId={projectId}/>
           </div>
         </div>
+        <NetworkDebug/>
       </div>
     </div>
   )

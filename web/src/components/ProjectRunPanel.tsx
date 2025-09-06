@@ -17,11 +17,25 @@ export const ProjectRunPanel: React.FC<Props> = ({ projectId }) => {
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch(`/projects/${projectId}/run/status`)
-      const data = await res.json()
+      const res = await fetch(`http://localhost:8787/projects/${projectId}/run/status`)
+      if(!res.ok) throw new Error(`status ${res.status}`)
+      let data:any = null
+      try {
+        const txt = await res.text()
+        try {
+          data = JSON.parse(txt)
+        } catch(parseErr) {
+          console.error("Failed to parse status JSON:", parseErr, "Raw text:", txt)
+          data = { running:false, url:null, error:"Invalid JSON from server" }
+        }
+      } catch(e) {
+        console.error("Failed to read response text:", e)
+        data = { running:false, url:null, error:"Failed to read status" }
+      }
       setStatus(data)
     } catch (err) {
-      console.error(err)
+      console.error("fetchStatus error:",err)
+      setStatus(prev => ({...(prev||{}), running:false, url:null, error:String(err)}))
     }
   }
 

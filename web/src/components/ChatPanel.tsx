@@ -1,5 +1,6 @@
 import React from 'react'
 import type { ChatMsg } from '../lib/chat'
+import { appendAssistant, sendToServer } from '../lib/chat'
 import DiffApplyDialog from './DiffApplyDialog'
 
 type ChatMsgExt = ChatMsg & { type?: "text" | "file-ref" }
@@ -11,7 +12,17 @@ export default function ChatPanel({ projectId, messages, onSend }:{ projectId:st
 
   React.useEffect(()=>{ if(ref.current) ref.current.scrollTop = ref.current.scrollHeight }, [messages])
 
-  function send(){ const t = text.trim(); if(!t) return; onSend(t); setText('') }
+  async function send(){
+    const t = text.trim()
+    if(!t) return
+    onSend(t)
+    setText('')
+    const reply = await sendToServer(t)
+    if(reply){
+      const display = reply.received ? JSON.stringify(reply.received) : JSON.stringify(reply)
+      appendAssistant(projectId, display)
+    }
+  }
 
   function extractDiffBlocks(s:string){
     const blocks:string[] = []

@@ -329,6 +329,35 @@ app.get('/projects/:id/file/*',(req,res)=>{
   }catch(e){res.status(500).json({error:e.message})}
 })
 
+ // ================== Chat with OpenAI ==================
+ app.post('/chat', async (req, res) => {
+   try {
+     if(!activeProfileId || !apiProfiles[activeProfileId]) {
+       return res.status(400).json({ error: 'No active OpenAI profile configured' })
+     }
+     const { message } = req.body || {}
+     if(!message) return res.status(400).json({ error: 'Missing message' })
+     const profile = apiProfiles[activeProfileId]
+     const r = await fetch("https://api.openai.com/v1/chat/completions", {
+       method: "POST",
+       headers: {
+         "Authorization": "Bearer " + profile.key,
+         "Content-Type": "application/json"
+       },
+       body: JSON.stringify({
+         model: profile.model || "gpt-4o-mini",
+         messages: [{ role: "user", content: message }]
+       })
+     })
+     const json = await r.json()
+     if(!r.ok) return res.status(r.status).json(json)
+     const reply = json.choices?.[0]?.message?.content || "(no response)"
+     res.json({ reply })
+   } catch(e) {
+     res.status(500).json({ error: String(e) })
+   }
+ })
+
 // ================== Start server ==================
 server.listen(PORT, ()=> {
   console.log(`Server listening on http://localhost:${PORT}`)

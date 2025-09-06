@@ -13,3 +13,18 @@ export function appendUser(pid:string, text:string){
 }
 export function appendAssistant(pid:string, text:string){ const l=loadChat(pid); l.push({id:uid(),role:'assistant',text,at:Date.now()}); saveChat(pid,l) }
 export function clearChat(pid:string){ saveChat(pid, []) }
+
+export async function sendToServer(message: string) {
+  try {
+    const res = await fetch("http://localhost:8787/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+    if (!res.ok) throw new Error("Server error " + res.status);
+    const data = await res.json();
+    return data;
+  } catch (err) {
+    return { error: String(err) };
+  }
+}

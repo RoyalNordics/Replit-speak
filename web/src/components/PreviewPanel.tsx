@@ -1,5 +1,6 @@
 import React from 'react'
 import * as FS from '../lib/files'
+import { normalizePreviewUrl, isValidHttpUrl } from '../lib/url'
 
 type Props = { projectId:string }
 

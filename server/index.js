@@ -19,35 +19,50 @@ app.use(express.json())
 
 const PORT = Number(process.env.PORT || 8787)
 
+let lastRealtimeError = null
+function setRealtimeError(obj){ lastRealtimeError = obj }
+
+app.get('/debug/realtime/last', (_req,res)=>{
+  res.json({ last: lastRealtimeError })
+})
+app.get('/config/status', (_req,res)=>{
+  const current = activeProfileId && apiProfiles[activeProfileId]
+  res.json({ hasActiveProfile: !!current, model: current?.model || null })
+})
+
 app.post('/realtime/sdp', async (req,res)=>{
-  if(!activeProfileId || !apiProfiles[activeProfileId]){
-    return res.status(400).send("No active profile")
-  }
-  const profile = apiProfiles[activeProfileId]
   try {
     const { sdp } = req.body || {}
-    if(!sdp) return res.status(400).send("Missing SDP")
-
-    const r = await fetch(`https://api.openai.com/v1/realtime?model=${profile.model}`,{
+    if(!sdp){
+      setRealtimeError({ at: Date.now(), status:400, message:'Missing sdp' })
+      return res.status(400).json({ error:'Missing sdp' })
+    }
+    const current = activeProfileId && apiProfiles[activeProfileId]
+    if(!current){
+      setRealtimeError({ at: Date.now(), status:400, message:'No API key configured' })
+      return res.status(400).json({ error:'No API key configured' })
+    }
+    const r = await fetch(`https://api.openai.com/v1/realtime?model=${encodeURIComponent(current.model)}`,{
       method:'POST',
       headers:{
-        'Authorization': `Bearer ${profile.key}`,
+        'Authorization': `Bearer ${current.key}`,
         'Content-Type': 'application/sdp'
       },
       body: sdp
     })
-
+    const txt = await r.text()
     if(!r.ok){
-      const msg = await r.text()
-      return res.status(400).send(msg)
+      setRealtimeError({ at: Date.now(), status:r.status, body: txt.slice(0,800) })
+      return res.status(r.status).json({ error:'OpenAI realtime error', status:r.status, body: txt.slice(0,500) })
     }
-
-    const answer = await r.text()
-    res.send(answer)
+    setRealtimeError(null)
+    return res.type('application/sdp').send(txt)
   } catch(e){
-    res.status(500).send(e.message)
+    setRealtimeError({ at: Date.now(), status:500, message:String(e) })
+    return res.status(500).json({ error:String(e) })
   }
 })
+console.log("Realtime debug at /debug/realtime/last, config at /config/status")
 
 let apiProfiles = {}
 let activeProfileId = null

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react"
+import { normalizePreviewUrl, isValidHttpUrl } from "../lib/url"
 
 interface Props {
   projectId: string
@@ -8,17 +9,6 @@ interface Status {
   running: boolean
   url?: string | null
   error?: string | null
-}
-
-function safePreviewHref(u?: string | null): string | null {
-  try {
-    if (!u || typeof u !== "string") return null
-    if (u.startsWith("http://") || u.startsWith("https://")) return u
-    if (u.startsWith("/")) return new URL(u, window.location.origin).toString()
-    return new URL("/" + u, window.location.origin).toString()
-  } catch {
-    return null
-  }
 }
 
 export const ProjectRunPanel: React.FC<Props> = ({ projectId }) => {
@@ -75,8 +65,8 @@ export const ProjectRunPanel: React.FC<Props> = ({ projectId }) => {
       <h3>Runtime</h3>
       {status.running ? (
         <div>
-          {safePreviewHref(status.url) ? (
-            <p>Running at: <a href={safePreviewHref(status.url) || "#"} target="_blank" rel="noreferrer">{safePreviewHref(status.url) ?? "Unknown URL"}</a></p>
+          {isValidHttpUrl(status?.url) ? (
+            <p>Running at: <a href={normalizePreviewUrl(status?.url) || "#"} target="_blank" rel="noreferrer">{normalizePreviewUrl(status?.url) ?? "Unknown URL"}</a></p>
           ) : (
             <span style={{color:"#64748b"}}>No runtime URL yet</span>
           )}

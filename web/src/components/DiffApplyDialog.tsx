@@ -24,9 +24,9 @@ export default function DiffApplyDialog({ projectId, initialText='', onClose, on
     setErrors(errs)
   }
 
-  function doApply(){
+  async function doApply(){
     const snap = FS.snapshot(projectId)
-    const { results, nextFiles } = applyUnifiedDiff(snap, text)
+    const { results } = applyUnifiedDiff(snap, text)
     const ch:string[] = []
     results.forEach(r=>{
       if (r.ok && r.before!==r.after){
@@ -36,6 +36,26 @@ export default function DiffApplyDialog({ projectId, initialText='', onClose, on
       }
     })
     onApplied(ch)
+    // ---------------- AUTO-BUILD ----------------
+    try {
+      const hasPkg = FS.exists(projectId, "package.json")
+      if (hasPkg) {
+        const res = await fetch(`/projects/${projectId}/run/status`)
+        const status = await res.json()
+        if (!status.running) {
+          if (confirm("Patch applied. Do you want to run the project now?")) {
+            await fetch(`/projects/${projectId}/run`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({})
+            })
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Auto-build error", err)
+    }
+    // ---------------- END AUTO-BUILD ------------
     onClose()
   }
 

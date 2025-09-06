@@ -2,7 +2,9 @@ import React from 'react'
 import type { ChatMsg } from '../lib/chat'
 import DiffApplyDialog from './DiffApplyDialog'
 
-export default function ChatPanel({ projectId, messages, onSend }:{ projectId:string; messages:ChatMsg[]; onSend:(t:string)=>void }){
+type ChatMsgExt = ChatMsg & { type?: "text" | "file-ref" }
+
+export default function ChatPanel({ projectId, messages, onSend }:{ projectId:string; messages:ChatMsgExt[]; onSend:(t:string)=>void }){
   const [text, setText] = React.useState('')
   const ref = React.useRef<HTMLDivElement>(null)
   const [diffText, setDiffText] = React.useState<string|null>(null)
@@ -25,7 +27,9 @@ export default function ChatPanel({ projectId, messages, onSend }:{ projectId:st
         {messages.length===0 ? <div style={{fontSize:12, color:'#64748b'}}>(No messages)</div> :
           messages.map(m => (
             <div key={m.id} style={{margin:'8px 0'}}>
-              <div style={{fontSize:12, color:'#475569'}}>{m.role}</div>
+              <div style={{fontSize:12, color:'#475569'}}>
+                {m.role}{m.type==="file-ref" && " 📎"}
+              </div>
               <div>{m.text}</div>
               {m.role==='assistant' && extractDiffBlocks(m.text).map((d,i)=>(
                 <button key={i} onClick={()=>setDiffText(d)} style={{marginTop:4, padding:'4px 8px'}}>Apply this diff</button>

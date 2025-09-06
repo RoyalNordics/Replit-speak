@@ -10,6 +10,8 @@ import { seedIfEmpty } from './lib/files'
 import ChatPanel from './components/ChatPanel'
 import { loadChat, appendUser, appendAssistant } from './lib/chat'
 import PreviewPanel from './components/PreviewPanel'
+import ApiKeyPanel from './components/ApiKeyPanel'
+import { ProjectRunPanel } from './components/ProjectRunPanel'
 
 export default function App(){
   const [projectId, setProjectId] = React.useState<string>(()=>{ ensureDefault(); return getActiveProjectId() })
@@ -136,8 +138,10 @@ export default function App(){
           </div>
           <PreviewPanel projectId={projectId}/>
         </div>
-        <div style={{borderLeft:'1px solid #e5e7eb', overflow:'auto', display:'grid', gridTemplateRows:'1fr auto auto'}}>
+        <div style={{borderLeft:'1px solid #e5e7eb', overflow:'auto', display:'grid', gridTemplateRows:'auto 1fr auto auto auto'}}>
+          <ApiKeyPanel/>
           <ChatPanel projectId={projectId} messages={messages} onSend={onSendChat}/>
+          <ProjectRunPanel projectId={projectId}/>
           <div style={{borderTop:'1px solid #e5e7eb', padding:10}}>
             <h2>Voice Assistant</h2>
             <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap', padding:10}}>

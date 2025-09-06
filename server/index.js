@@ -7,13 +7,98 @@ import vm from 'vm'
 import fetch from 'node-fetch'
 import multer from 'multer'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, rmSync, readdirSync, statSync } from 'fs'
+import { spawn } from 'child_process'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { tmpdir } from 'os'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
+app.use(cors())
+app.use(express.json())
+
 const PORT = Number(process.env.PORT || 8787)
+
+app.post('/realtime/sdp', async (req,res)=>{
+  if(!activeProfileId || !apiProfiles[activeProfileId]){
+    return res.status(400).send("No active profile")
+  }
+  const profile = apiProfiles[activeProfileId]
+  try {
+    const { sdp } = req.body || {}
+    if(!sdp) return res.status(400).send("Missing SDP")
+
+    const r = await fetch(`https://api.openai.com/v1/realtime?model=${profile.model}`,{
+      method:'POST',
+      headers:{
+        'Authorization': `Bearer ${profile.key}`,
+        'Content-Type': 'application/sdp'
+      },
+      body: sdp
+    })
+
+    if(!r.ok){
+      const msg = await r.text()
+      return res.status(400).send(msg)
+    }
+
+    const answer = await r.text()
+    res.send(answer)
+  } catch(e){
+    res.status(500).send(e.message)
+  }
+})
+
+let apiProfiles = {}
+let activeProfileId = null
+
+const profilesPath = join(__dirname, 'profiles.json')
+
+// load profiles from disk on startup
+if (existsSync(profilesPath)) {
+  try {
+    const parsed = JSON.parse(readFileSync(profilesPath,'utf8'))
+    apiProfiles = parsed.apiProfiles || {}
+    activeProfileId = parsed.activeProfileId || null
+  } catch(e) {
+    console.error("Failed to load profiles:", e)
+    apiProfiles = {}
+    activeProfileId = null
+  }
+}
+
+function saveProfiles() {
+  try {
+    const data = { apiProfiles, activeProfileId }
+    writeFileSync(profilesPath, JSON.stringify(data,null,2))
+  } catch(e){
+    console.error("Failed to save profiles:", e)
+  }
+}
+
+app.get('/config/profiles',(_req,res)=>{
+  const profiles = Object.values(apiProfiles).map(p=>({id:p.id,name:p.name,model:p.model}))
+  res.json({ active:activeProfileId, profiles })
+})
+app.post('/config/profiles',(req,res)=>{
+  const {id,name,key,model} = req.body||{}
+  if(!id||!name||!key||!model) return res.status(400).json({error:'Missing fields'})
+  if(!key.startsWith('sk-')) return res.status(400).json({error:'Invalid key'})
+  apiProfiles[id] = {id,name,key,model}
+  res.json({ok:true})
+})
+app.delete('/config/profiles/:id',(req,res)=>{
+  const id=req.params.id
+  delete apiProfiles[id]
+  if(activeProfileId===id) activeProfileId=null
+  res.json({ok:true})
+})
+app.post('/config/activate/:id',(req,res)=>{
+  const id=req.params.id
+  if(!apiProfiles[id]) return res.status(404).json({error:'not found'})
+  activeProfileId=id
+  res.json({ok:true})
+})
 
 app.use(cors())
 app.use(express.json({ limit: '2mb' }))
@@ -26,23 +111,25 @@ app.post('/echo', (req, res) => res.json({ received: req.body }))
 app.post('/realtime/sdp', async (req, res) => {
   try {
     const { sdp } = req.body
-    if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ error: 'OPENAI_API_KEY not set' })
+    if(!activeProfileId||!apiProfiles[activeProfileId]){
+      return res.status(400).json({error:'No active profile'})
     }
-    const r = await fetch(`https://api.openai.com/v1/realtime?model=${process.env.REALTIME_MODEL}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/sdp'
+    if(!activeProfileId||!apiProfiles[activeProfileId]){
+      return res.status(400).json({error:'No active profile'})
+    }
+    const profile=apiProfiles[activeProfileId]
+    const r=await fetch(`https://api.openai.com/v1/realtime?model=${profile.model}`,{
+      method:'POST',
+      headers:{
+        'Authorization':`Bearer ${profile.key}`,
+        'Content-Type':'application/sdp'
       },
-      body: sdp
+      body:sdp
     })
-    const text = await r.text()
-    res.setHeader('Content-Type', 'application/sdp')
+    const text=await r.text()
+    res.setHeader('Content-Type','application/sdp')
     res.send(text)
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
+  }catch(err){res.status(500).json({error:err.message})}
 })
 
 // ================== Uploads ==================
@@ -130,10 +217,12 @@ app.delete('/preview/:id',(req,res)=>{
 // ================== WebSocket runner ==================
 const server = createServer(app)
 const wss = new WebSocketServer({ server })
+
 wss.on('connection',(ws)=>{
   ws.send('Connected to code runner')
+
   ws.on('message',(msg)=>{
-    try{
+    try {
       const code = msg.toString()
       let logs = []
       const sandboxConsole = {
@@ -146,8 +235,83 @@ wss.on('connection',(ws)=>{
       const context = vm.createContext({ console:sandboxConsole })
       vm.runInContext(code, context, { timeout:1000 })
       ws.send(JSON.stringify({ type:"done", logs }))
-    }catch(err){ ws.send(JSON.stringify({ type:"error", data:err.message })) }
+    } catch(err) {
+      ws.send(JSON.stringify({ type:"error", data: err.message }))
+    }
   })
+})
+ 
+let projectRuntimes = new Map()
+let basePort = 3000
+
+// ================== Runtimes ==================
+app.post('/projects/:id/run',(req,res)=>{
+  const id = req.params.id
+  const { command } = req.body || {}
+  if(projectRuntimes.has(id)){
+    return res.status(400).json({error:'Already running'})
+  }
+  const dir = join(uploadsDir,id)
+  if(!existsSync(dir)) return res.status(400).json({error:'No such project'})
+  const port = basePort + projectRuntimes.size
+  const cmd = command || "npm run dev"
+  const child = spawn(cmd,{cwd:dir,shell:true,env:{...process.env,PORT:String(port)}})
+  projectRuntimes.set(id,{process:child,port})
+  child.stdout.on('data',(d)=>console.log(`[${id}]`,d.toString()))
+  child.stderr.on('data',(d)=>console.error(`[${id}]`,d.toString()))
+  child.on('exit',()=>{projectRuntimes.delete(id)})
+  res.json({ok:true,url:`http://localhost:${port}`})
+})
+app.delete('/projects/:id/run',(req,res)=>{
+  const id=req.params.id
+  if(!projectRuntimes.has(id)) return res.json({ok:false})
+  const {process}=projectRuntimes.get(id)
+  process.kill()
+  projectRuntimes.delete(id)
+  res.json({ok:true})
+})
+app.get('/projects/:id/run/status',(req,res)=>{
+  const id=req.params.id
+  if(!projectRuntimes.has(id)) return res.json({running:false})
+  const {port}=projectRuntimes.get(id)
+  res.json({running:true, url:`http://localhost:${port}`})
+})
+// ================== File reference APIs ==================
+app.get('/projects/:id/files',(req,res)=>{
+  try {
+    const id=req.params.id
+    const dir = join(uploadsDir,id)
+    if(!existsSync(dir)) return res.json({files:[]})
+    const out = []
+    function walk(base, rel="") {
+      const ls = readdirSync(base)
+      for(const name of ls){
+        const full = join(base,name)
+        const st = statSync(full)
+        const path = rel ? rel+"/"+name : name
+        if(st.isDirectory()){
+          walk(full,path)
+        } else {
+          out.push({ path, size:st.size, mimetype:mime.lookup(name)||"application/octet-stream" })
+        }
+      }
+    }
+    walk(dir,"")
+    res.json({ files: out })
+  } catch(e){ res.status(500).json({error:e.message}) }
+})
+app.get('/projects/:id/file/*',(req,res)=>{
+  try{
+    const id=req.params.id
+    const relPath=req.params['0']
+    const dir=join(uploadsDir,id)
+    const full=join(dir,relPath)
+    if(!existsSync(full)) return res.status(404).send('Not found')
+    const mt = mime.lookup(full)||'application/octet-stream'
+    res.setHeader('Content-Type',mt)
+    const data=readFileSync(full,{encoding:undefined})
+    res.send(data)
+  }catch(e){res.status(500).json({error:e.message})}
 })
 
 // ================== Start server ==================
@@ -156,4 +320,5 @@ server.listen(PORT, ()=> {
   console.log("Realtime SDP proxy ready")
   console.log("Upload endpoint ready at POST /upload; static at /uploads")
   console.log("Static preview ready at /preview/:id/*")
+  console.log("Runtime endpoints ready: POST/DELETE/GET /projects/:id/run")
 })
